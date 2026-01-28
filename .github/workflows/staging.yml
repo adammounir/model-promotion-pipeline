@@ -1,0 +1,39 @@
+name: Candidate to Staging
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  train_register:
+    runs-on: ubuntu-latest
+    outputs:
+      result_json: ${{ steps.train.outputs.result_json }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      
+      - name: Install ML deps
+        run: pip install -r ml/requirements.txt
+      
+      - name: Train + register in MLflow
+        id: train
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.DAGSHUB_MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+          MODEL_NAME: churn-model
+        run: |
+          # On lance l'entraînement et on capture la sortie JSON
+          python ml/train_and_register.py | tee train_out.json
+          echo "result_json=$(cat train_out.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate gate
+        env:
+          ACCURACY_THRESHOLD: "0.90"
+        run: |
+          # On passe le JSON au script d'évaluation pour le Quality Gate
+          echo '${{ steps.train.outputs.result_json }}' | python ml/evaluate.py
